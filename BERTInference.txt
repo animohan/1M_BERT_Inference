@@ -1,0 +1,46 @@
+You can follow these steps:
+
+1. Initialize a AWS G4 instance (for now MXNet 1.6, MXNet 1.7 coming on AWS)
+On AWS select an AMI with MXNet 1.6, for instance Deep Learning AMI (Ubuntu 18.04) Version 28.1 (or posterior) and a G4 instance. Then set MXNet 1.6 and the latest version of GluonNLP:
+
+- source activate mxnet_p36
+- git clone https://github.com/dmlc/gluon-nlp.git
+- git clone --branch deploy_bert https://github.com/MoisesHer/gluon-nlp.git
+- cd gluon-nlp; pip install -e .; cd scripts/bert
+
+
+2.	Finetune your model specifying a sequence length and using a GPU:
+
+- If Question-Answering task you can run the following script (~180 minutes):
+- python3 finetune_squad.py --max_seq_length 128 --gpu
+
+- If Classification task you can run the following script:
+- python3 finetune_classifier.py --task_name [task_name] --max_len 128 --gpu 0
+- where task choices include ‘MRPC’, QQP, ', 'QNLI, RTE, STS-B, CoLA, MNLI, WNLI, SST (refers to SST2), XNLI, LCQMC, and ChnSentiCorp. Computation time depends on the specific task. For SST, it should take less than 15 minutes.
+
+
+By default these scripts run 3 epochs (to achieve the published accuracy in [1]).
+
+They generate an output file, output_dir/net.params, where the fine tunedfinetuned parameters are stored and from where they can be loaded at inference step. Scripts also perform a prediction test to check accuracy.
+You should get a f1 score of 85 or higher in question-answering, and a validation metric higher to 0.92 in SST classification task.
+
+Perform inference using validation datasets:
+
+3.Force MXNet to use FP32 precision in Softmax and LayerNorm layers for better accuracy when using FP16. These two layers are susceptible to overflow, and thus we recommend to always use FP32. MXNet will take care of it if you set:
+- export MXNET_SAFE_ACCUMULATION=1
+
+
+4.	Activate True FP16 computation for performance purposes. GEMMs do not present accuracy issues in this model. By default, they are computed using FP32 accumulation (see optimizations section for more details), but user can activate FP16 accumulation setting:
+- export MXNET_FC_TRUE_FP16=1
+
+5.	Run inference
+- python3 deploy.py --model_parameters [path_to_finetuned_params] --task [_task_] --gpu 0 --dtype float16
+- where task can be one of ['QA', ‘embedding’, 'MRPC', 'QQP', 'QNLI', 'RTE', 'STS-B', 'CoLA', 'MNLI', 'WNLI', 'SST', 'XNLI', 'LCQMC', 'ChnSentiCorp'] [1].
+
+This command exports the model ( json and params files) into the output dir (output_dir/task_name_), and performs inference using the validation dataset corresponding to each task.
+It reports the average latency and throughput.
+The second time you run it, you can skip the export step by adding the tag “--only_infer”, and specifying the exported model to use adding “--exported_model” followed by the prefix name of json/param files.
+
+Optimal latency is achieved on G4 instances with FP16 precision. We recommend adding the flag -dtype float16 when performing inference. This flag should not reduce the final accuracy in your results.
+
+By default,  all these scripts use BERT-base (12 transformer-encoder layers), which is the default one. If you desire to use BERT-large, you can use the flag “--bert_model bert_24_1024_16” when calling the scripts.
